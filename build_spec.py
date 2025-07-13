@@ -80,7 +80,7 @@ def build_executable(spec_only=False):
     """构建可执行文件"""
     
     print("=" * 50)
-    print("   InfoGen v3.0 打包工具")  
+    print("   InfoGen v3.1 打包工具")  
     print("=" * 50)
     
     # 检查必要文件

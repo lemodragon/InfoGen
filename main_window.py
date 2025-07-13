@@ -15,9 +15,11 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QTabWidget, QComboBox, QProgressBar)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings
 from PyQt5.QtGui import QFont, QIcon, QPalette, QColor, QTextCursor
+from datetime import datetime
 
 from name_generator import NameGenerator, PhoneGenerator
 from vcf_generator import VCFGenerator
+from umami_analytics import UmamiAnalytics
 
 
 def get_resource_path(relative_path):
@@ -125,6 +127,9 @@ class MainWindow(QMainWindow):
         self.phone_generator = PhoneGenerator()
         self.vcf_generator = VCFGenerator()
         
+        # 初始化统计模块
+        self.analytics = UmamiAnalytics()
+        
         # 存储生成的数据
         self.generated_names = []
         self.generated_phones = []
@@ -135,9 +140,12 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.restore_window_state()
         
+        # 发送应用启动统计事件
+        self.analytics.track_app_start()
+        
     def init_ui(self):
         """初始化用户界面"""
-        self.setWindowTitle("InfoGen v3.0 - 多功能信息生成器")
+        self.setWindowTitle("InfoGen v3.1 - 多功能信息生成器")
         
         # 动态计算最小窗口尺寸，确保界面可用性的同时允许用户灵活调整
         from PyQt5.QtWidgets import QApplication
@@ -285,6 +293,7 @@ class MainWindow(QMainWindow):
         self.create_phone_tab()
         self.create_vcf_tab()
         self.create_about_tab()
+        self.create_tutorial_tab()
         
         layout.addWidget(self.tab_widget)
     
@@ -362,12 +371,13 @@ class MainWindow(QMainWindow):
         if os.path.exists(icon_path):
             icon_label = QLabel()
             icon_label.setPixmap(QIcon(icon_path).pixmap(64, 64))
-            icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            icon_label.setAlignment(Qt.AlignmentFlag.AlignBottom)
             title_layout.addWidget(icon_label)
         
         # 标题文本
         title_text_layout = QVBoxLayout()
-        main_title = QLabel("InfoGen v3.0")
+        main_title = QLabel("InfoGen v3.1")
+        main_title.setAlignment(Qt.AlignmentFlag.AlignBottom)
         main_title.setStyleSheet("""
             QLabel {
                 font-size: 32px;
@@ -377,17 +387,7 @@ class MainWindow(QMainWindow):
             }
         """)
         
-        subtitle = QLabel("信息生成器")
-        subtitle.setStyleSheet("""
-            QLabel {
-                font-size: 18px;
-                color: #666;
-                margin: 5px 0px;
-            }
-        """)
-        
         title_text_layout.addWidget(main_title)
-        title_text_layout.addWidget(subtitle)
         title_layout.addLayout(title_text_layout)
         title_layout.addStretch()
         
@@ -493,14 +493,16 @@ class MainWindow(QMainWindow):
         # 开源地址
         github_label = QLabel('🌟 开源地址：<a href="https://github.com/lemodragon/InfoGen" style="color: #2196f3; text-decoration: none;">https://github.com/lemodragon/InfoGen</a>')
         github_label.setStyleSheet("font-size: 14px; color: #555; background: transparent;")
-        github_label.setOpenExternalLinks(True)
+        github_label.setOpenExternalLinks(False)  # 禁用自动打开，使用自定义处理
         github_label.setTextFormat(Qt.TextFormat.RichText)
+        github_label.linkActivated.connect(lambda url: self.on_external_link_clicked(url, "GitHub开源地址"))
         
         # 联系作者
         contact_author_label = QLabel('📧 联系作者：<a href="https://demo.lvdpub.com" style="color: #2196f3; text-decoration: none;">https://demo.lvdpub.com</a>')
         contact_author_label.setStyleSheet("font-size: 14px; color: #555; background: transparent;")
-        contact_author_label.setOpenExternalLinks(True)
+        contact_author_label.setOpenExternalLinks(False)  # 禁用自动打开，使用自定义处理
         contact_author_label.setTextFormat(Qt.TextFormat.RichText)
+        contact_author_label.linkActivated.connect(lambda url: self.on_external_link_clicked(url, "联系作者"))
         
         # 问题反馈
         feedback_label = QLabel("💡 问题反馈：欢迎提交Issue或Pull Request")
@@ -540,6 +542,18 @@ class MainWindow(QMainWindow):
         layout.addWidget(scroll)
         
         self.tab_widget.addTab(about_tab, "ℹ️ 关于")
+
+    def create_tutorial_tab(self):
+        """创建教程标签页"""
+        tutorial_tab = QWidget()
+        tutorial_index = self.tab_widget.addTab(tutorial_tab, "📚 教程")
+        
+        # 设置教程标签页的文字颜色为红色
+        from PyQt5.QtGui import QColor
+        self.tab_widget.tabBar().setTabTextColor(tutorial_index, QColor("red"))
+        
+        # 连接标签页切换事件
+        self.tab_widget.currentChanged.connect(self.on_tab_changed)
 
     def create_name_control_panel(self, layout):
         """创建控制面板"""
@@ -913,7 +927,7 @@ class MainWindow(QMainWindow):
         file_count_label.setStyleSheet("font-weight: bold; color: #555;")
         
         self.vcf_file_count_spinbox = QSpinBox()
-        self.vcf_file_count_spinbox.setRange(1, 100)
+        self.vcf_file_count_spinbox.setRange(1, 1000)
         self.vcf_file_count_spinbox.setValue(5)
         
         # 每文件联系人数量
@@ -1868,8 +1882,63 @@ class MainWindow(QMainWindow):
     
     def closeEvent(self, event):
         """窗口关闭事件"""
+        # 发送应用关闭统计事件
+        self.analytics.track_app_close()
+        
         self.save_window_state()
         event.accept()
+
+    def on_tab_changed(self, index):
+        """标签页切换事件处理"""
+        tab_names = ["name_generator", "phone_generator", "vcf_generator", "about", "tutorial"]
+        if 0 <= index < len(tab_names):
+            tab_name = tab_names[index]
+            
+            # 如果切换到关于页面，发送关于页面访问统计
+            if tab_name == "about":
+                self.analytics.track_about_page_view()
+            # 如果点击教程标签，直接跳转到外部链接并统计
+            elif tab_name == "tutorial":
+                # 使用与联系作者相同的事件统计方式
+                self.analytics.track_external_link_click("https://mp.weixin.qq.com/s/FIEQiHgMosMKi24EUI_DRw", "教程")
+                # 打开外部链接
+                try:
+                    from PyQt5.QtGui import QDesktopServices
+                    from PyQt5.QtCore import QUrl
+                    QDesktopServices.openUrl(QUrl("https://mp.weixin.qq.com/s/FIEQiHgMosMKi24EUI_DRw"))
+                except Exception as e:
+                    print(f"打开教程链接失败: {e}")
+                # 切换回上一个标签页（避免停留在空的教程页面）
+                if hasattr(self, 'last_tab_index') and self.last_tab_index != index:
+                    self.tab_widget.setCurrentIndex(self.last_tab_index)
+                else:
+                    self.tab_widget.setCurrentIndex(0)  # 默认切换到第一个标签页
+            else:
+                # 记录当前标签页索引（除了教程标签页）
+                self.last_tab_index = index
+
+    def on_external_link_clicked(self, url, link_text):
+        """外部链接点击事件处理"""
+        # 根据链接类型生成页面路径格式的统计事件
+        if "github.com" in url:
+            page_name = "GitHub开源地址"
+        elif "lvdpub.com" in url:
+            page_name = "联系作者"
+        elif "mp.weixin.qq.com" in url:
+            page_name = "教程"
+        else:
+            page_name = link_text
+        
+        # 发送外部链接点击统计
+        self.analytics.track_external_link_click(url, page_name)
+        
+        # 打开外部链接
+        try:
+            from PyQt5.QtGui import QDesktopServices
+            from PyQt5.QtCore import QUrl
+            QDesktopServices.openUrl(QUrl(url))
+        except Exception as e:
+            print(f"打开外部链接失败: {e}")
 
 
 def main():
