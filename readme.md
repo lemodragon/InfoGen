@@ -154,7 +154,7 @@ VCFGenerator:
 
 ## 开源协议
 
-本项目采用 MIT 开源协议
+本项目采用 CC0-1.0 license开源协议
 
 ## 联系信息
 
